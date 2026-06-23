@@ -5,11 +5,9 @@ import requests
 import os
 from xml.sax.saxutils import escape as xml_escape
 from typing import Dict, Any, Optional, List
-from flask_cors import CORS  # Added for Roblox compatibility
+from flask_cors import CORS
 
 app = Flask(__name__)
-
-# Enable CORS for all routes (important for Roblox client)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # ====================== CONFIG & LIMITS ======================
@@ -32,7 +30,7 @@ def num_list(v, n, default):
 def normalize_color(color):
     if not isinstance(color, list) or len(color) != 3:
         return [1.0, 1.0, 1.0]
-    if max(color) > 1.0:  # 0-255 → 0-1
+    if max(color) > 1.0:  # 0-255 to 0-1
         return [c / 255.0 for c in color]
     return color
 
@@ -53,13 +51,10 @@ def token_material(v):
     return mapping.get(s, "256")
 
 def token_shape(v):
-    if not v: 
-        return "1"
+    if not v: return "1"
     s = str(v).lower()
-    if any(x in s for x in ["ball", "sphere"]): 
-        return "0"
-    if "cylinder" in s: 
-        return "2"
+    if any(x in s for x in ["ball", "sphere"]): return "0"
+    if "cylinder" in s: return "2"
     return "1"
 
 def token_face(v):
@@ -142,7 +137,7 @@ def build_instance(data: dict, parent_ref: Optional[str] = None, depth: int = 0,
             content = ET.SubElement(props, "Content", {"name": "MeshId"})
             ET.SubElement(content, "url").text = esc(data.get("MeshId"))
 
-    # SpecialMesh support
+    # SpecialMesh
     if cls == "SpecialMesh" or data.get("SpecialMesh"):
         mesh_data = data.get("SpecialMesh", data)
         mesh_item = build_special_mesh(mesh_data, ref)
@@ -168,7 +163,8 @@ def json_to_rbxmx(json_data: Dict[str, Any], display_name: str = "Studio Creatio
     ET.SubElement(props, "string", {"name": "Name"}).text = esc(display_name)
 
     count = [0]
-    main_item = build_instance(json_data if isinstance(json_data, dict) else (json_data[0] if isinstance(json_data, list) and json_data else {}))
+    main_data = json_data if isinstance(json_data, dict) else (json_data[0] if isinstance(json_data, list) and json_data else {})
+    main_item = build_instance(main_data)
     if main_item:
         model.append(main_item)
 
@@ -188,22 +184,24 @@ def publish():
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
 
-        # Support multiple possible keys for compatibility
         json_payload = data.get("json_data") or data.get("instances")
         api_key = data.get("apiKey") or data.get("api_key")
-        display_name = data.get("displayName", data.get("assetName", "Studio Creation"))
-        description = data.get("description", "Uploaded via Studio Creations Lite")
+        display_name = data.get("displayName") or data.get("assetName")
+        description = data.get("description", "Created with Studio Creations Lite")
         user_id = data.get("userId") or data.get("user_id")
 
+        # Validation
         if not api_key:
             return jsonify({"error": "apiKey is required"}), 400
+        if not display_name or str(display_name).strip() == "":
+            return jsonify({"error": "displayName is required"}), 400
         if not json_payload:
             return jsonify({"error": "json_data or instances is required"}), 400
 
         # Generate RBXMX
         rbxmx_path = json_to_rbxmx(json_payload, display_name)
 
-        # Prepare upload
+        # Upload to Roblox
         request_payload = {
             "assetType": "Model",
             "displayName": display_name,
@@ -212,7 +210,7 @@ def publish():
         }
 
         files = {
-            "request": (None, str(request_payload), "application/json"),  # Simplified
+            "request": (None, str(request_payload), "application/json"),
             "fileContent": ("model.rbxmx", open(rbxmx_path, "rb"), "model/x-rbxm")
         }
 
@@ -222,7 +220,6 @@ def publish():
             files=files
         )
 
-        # Cleanup
         if os.path.exists(rbxmx_path):
             os.remove(rbxmx_path)
 
